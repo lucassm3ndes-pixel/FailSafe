@@ -1,0 +1,328 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
+import socket
+import subprocess
+import re
+from concurrent.futures import ThreadPoolExecutor
+
+try:
+    import nmap
+    NMAP_AVAILABLE = True
+except:
+    NMAP_AVAILABLE = False
+
+
+PORTS = [21,22,23,25,53,80,110,139,143,443,445,3389]
+
+PORT_RISKS = {
+    21:"FTP inseguro",
+    23:"Telnet inseguro",
+    25:"SMTP",
+    80:"HTTP",
+    443:"HTTPS",
+    3389:"Remote Desktop"
+}
+
+scan_running = False
+
+
+def validar_rede(network):
+    padrao = r"^\d{1,3}\.\d{1,3}\.\d{1,3}$"
+    return re.match(padrao, network)
+
+
+def ping(ip):
+
+    try:
+        output = subprocess.check_output(
+            f"ping -n 1 {ip}",
+            stderr=subprocess.DEVNULL,
+            shell=True
+        )
+
+        return b"TTL=" in output
+
+    except:
+        return False
+
+
+# ---------- SCANNER DE PORTAS RÁPIDO ----------
+
+def check_port(ip, port):
+
+    try:
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.3)
+
+        if s.connect_ex((ip,port)) == 0:
+            s.close()
+            return port
+
+        s.close()
+
+    except:
+        pass
+
+    return None
+
+
+def scan_ports(ip):
+
+    open_ports = []
+
+    with ThreadPoolExecutor(max_workers=50) as executor:
+
+        results = executor.map(lambda p: check_port(ip,p), PORTS)
+
+        for port in results:
+            if port:
+                open_ports.append(port)
+
+    return open_ports
+
+
+# ---------- SCAN PYTHON ----------
+
+def scan_with_python(network):
+
+    total_ips = 254
+
+    result_box.insert(tk.END,"[PYTHON SCANNER ACTIVE]\n\n")
+
+    for i in range(1,255):
+
+        ip = f"{network}.{i}"
+
+        if ping(ip):
+
+            result_box.insert(tk.END,f"[DEVICE FOUND] {ip}\n")
+
+            ports = scan_ports(ip)
+
+            for p in ports:
+
+                risk = PORT_RISKS.get(p,"")
+
+                if risk:
+                    result_box.insert(tk.END,f"   [OPEN] Port {p} -> {risk}\n")
+                else:
+                    result_box.insert(tk.END,f"   [OPEN] Port {p}\n")
+
+            result_box.insert(tk.END,"\n")
+
+        progress["value"] = (i/total_ips)*100
+        root.update_idletasks()
+
+
+# ---------- SCAN NMAP ----------
+
+def scan_with_nmap(network):
+
+    result_box.insert(tk.END,"[NMAP SCANNER ACTIVE]\n\n")
+
+    scanner = nmap.PortScanner()
+
+    scanner.scan(hosts=f"{network}.0/24", arguments='-sn')
+
+    hosts = scanner.all_hosts()
+
+    total = max(len(hosts),1)
+    count = 0
+
+    for host in hosts:
+
+        count += 1
+
+        result_box.insert(tk.END,f"[DEVICE FOUND] {host}\n")
+
+        try:
+
+            scanner.scan(host, arguments='-F')
+
+            for proto in scanner[host].all_protocols():
+
+                ports = scanner[host][proto].keys()
+
+                for port in ports:
+
+                    service = scanner[host][proto][port]['name']
+                    risk = PORT_RISKS.get(port,"")
+
+                    if risk:
+                        result_box.insert(
+                            tk.END,
+                            f"   [OPEN] Port {port} ({service}) -> {risk}\n"
+                        )
+                    else:
+                        result_box.insert(
+                            tk.END,
+                            f"   [OPEN] Port {port} ({service})\n"
+                        )
+
+        except:
+            result_box.insert(tk.END,"   Scan error\n")
+
+        result_box.insert(tk.END,"\n")
+
+        progress["value"] = (count/total)*100
+        root.update_idletasks()
+
+
+# ---------- VERIFICAR NMAP ----------
+
+def check_nmap():
+
+    try:
+        subprocess.check_output("nmap -v",shell=True)
+        return True
+    except:
+        return False
+
+
+# ---------- SCAN PRINCIPAL ----------
+
+def scan_network():
+
+    global scan_running
+
+    scan_running = True
+
+    result_box.delete(1.0,tk.END)
+
+    network = network_entry.get().strip()
+
+    if not validar_rede(network):
+
+        messagebox.showerror(
+            "Erro",
+            "Rede inválida\nExemplo: 192.168.1"
+        )
+
+        scan_running = False
+        return
+
+    result_box.insert(
+        tk.END,
+        f"[+] Scanning network {network}.0/24\n\n"
+    )
+
+    progress["value"] = 0
+
+    if NMAP_AVAILABLE and check_nmap():
+        scan_with_nmap(network)
+    else:
+        scan_with_python(network)
+
+    result_box.insert(tk.END,"\n[SCAN COMPLETE]\n")
+
+    scan_running = False
+
+
+def start_scan():
+
+    if scan_running:
+        return
+
+    thread = threading.Thread(
+        target=scan_network,
+        daemon=True
+    )
+
+    thread.start()
+
+
+# ---------- FULLSCREEN ----------
+
+def toggle_fullscreen(event=None):
+    root.attributes("-fullscreen", True)
+
+
+def exit_fullscreen(event=None):
+    root.attributes("-fullscreen", False)
+
+
+# ---------- INTERFACE ----------
+
+root = tk.Tk()
+root.title("Network Security Scanner")
+root.geometry("900x600")
+root.configure(bg="black")
+
+root.bind("<F11>", toggle_fullscreen)
+root.bind("<Escape>", exit_fullscreen)
+
+
+title = tk.Label(
+    root,
+    text="NETWORK SECURITY SCANNER",
+    fg="lime",
+    bg="black",
+    font=("Courier",18,"bold")
+)
+
+title.pack(pady=10)
+
+
+frame = tk.Frame(root,bg="black")
+frame.pack()
+
+
+label = tk.Label(
+    frame,
+    text="Network:",
+    fg="lime",
+    bg="black",
+    font=("Courier",12)
+)
+
+label.pack(side=tk.LEFT)
+
+
+network_entry = tk.Entry(
+    frame,
+    bg="black",
+    fg="lime",
+    insertbackground="lime",
+    font=("Courier",12),
+    width=15
+)
+
+network_entry.insert(0,"192.168.1")
+network_entry.pack(side=tk.LEFT,padx=10)
+
+
+scan_button = ttk.Button(
+    frame,
+    text="Start Scan",
+    command=start_scan
+)
+
+scan_button.pack(side=tk.LEFT)
+
+
+progress = ttk.Progressbar(
+    root,
+    orient="horizontal",
+    length=500,
+    mode="determinate"
+)
+
+progress.pack(pady=10)
+
+
+result_box = tk.Text(
+    root,
+    bg="black",
+    fg="lime",
+    insertbackground="lime",
+    font=("Courier",11),
+    width=110,
+    height=30
+)
+
+result_box.pack(pady=10)
+
+
+root.mainloop()
