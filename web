@@ -1,0 +1,69 @@
+import tkinter as tk
+from tkinter import messagebox
+
+try:
+    from tkinterweb import HtmlFrame
+except ImportError:
+    messagebox.showerror("Erro", "Instale tkinterweb: pip install tkinterweb")
+    exit()
+
+def carregar_url():
+    url = entrada.get().strip()
+
+    if not url.startswith("http"):
+        url = "https://" + url
+
+    try:
+        navegador.load_website(url)
+    except Exception as e:
+        messagebox.showerror("Erro", str(e))
+
+def pesquisar(event=None):
+    query = entrada.get().strip().replace(" ", "+")
+    navegador.load_website(f"https://www.google.com/search?q={query}")
+
+def voltar():
+    try:
+        navegador.go_back()
+    except:
+        pass
+
+def avancar():
+    try:
+        navegador.go_forward()
+    except:
+        pass
+
+
+# ----------------------------
+# JANELA
+# ----------------------------
+root = tk.Tk()
+root.title("Mini Navegador")
+root.geometry("900x600")
+
+# ----------------------------
+# BARRA SUPERIOR
+# ----------------------------
+topbar = tk.Frame(root, bg="#2b2b2b")
+topbar.pack(fill="x")
+
+tk.Button(topbar, text="⬅", command=voltar).pack(side="left")
+tk.Button(topbar, text="➡", command=avancar).pack(side="left")
+
+entrada = tk.Entry(topbar, width=50)
+entrada.pack(side="left", padx=5, pady=5)
+entrada.bind("<Return>", carregar_url)
+
+tk.Button(topbar, text="Ir", command=carregar_url).pack(side="left")
+tk.Button(topbar, text="Pesquisar", command=pesquisar).pack(side="left")
+
+# ----------------------------
+# NAVEGADOR
+# ----------------------------
+navegador = HtmlFrame(root)
+navegador.pack(fill="both", expand=True)
+
+navegador.load_website("https://www.google.com")
+
+root.mainloop()
